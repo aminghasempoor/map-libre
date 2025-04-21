@@ -1,103 +1,119 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
-  return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm/6 text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-[family-name:var(--font-geist-mono)] font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+import 'maplibre-gl/dist/maplibre-gl.css';
+import { Map, Marker, Source, Layer } from '@vis.gl/react-maplibre';
+import styled from 'styled-components';
+import { useEffect, useState } from 'react';
+import axios from 'axios';
+import {motion, AnimatePresence} from "framer-motion";
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
-  );
+const MapWrapper = styled.div`
+  height: 100vh;
+  width: 100%;
+  position: relative;
+`;
+const MotionOverlay = styled(motion.div)`
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  font-size: 1.25rem;
+  font-weight: bold;
+`;
+
+type Coord = [number, number];
+
+export default function HomePage() {
+    const [routePoints, setRoutePoints] = useState<Coord[]>([]);
+    const [route, setRoute] = useState<any>(null);
+    const [mapLoaded, setMapLoaded] = useState(false);
+    const [isRouting, setIsRouting] = useState(false);
+
+    const handleMapClick = (e: maplibregl.MapMouseEvent & maplibregl.EventData) => {
+        const { lng, lat } = e.lngLat;
+
+        setRoute(null); // clear route on every new click
+
+        setRoutePoints(prev => {
+            if (prev.length >= 2) {
+                // reset if already have two points
+                return [[lng, lat]];
+            }
+            return [...prev, [lng, lat]];
+        });
+    };
+
+    // Fetch route when we have 2 points
+    useEffect(() => {
+        const fetchRoute = async () => {
+            if (routePoints.length === 2) {
+                const [from, to] = routePoints;
+                setIsRouting(true);
+                try {
+                    const res = await axios.get(
+                        `https://router.project-osrm.org/route/v1/driving/${from[0]},${from[1]};${to[0]},${to[1]}?overview=full&geometries=geojson`
+                    );
+                    setRoute(res.data.routes[0].geometry);
+                } catch (err) {
+                    console.error('Error fetching route:', err);
+                } finally {
+                    setIsRouting(false);
+                }
+            }
+        };
+        fetchRoute();
+    }, [routePoints]);
+
+    return (
+        <MapWrapper>
+            <AnimatePresence exitBeforeEnter>
+                {(!mapLoaded || isRouting) && (
+                    <MotionOverlay
+                        key="loader"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.4, ease: 'easeInOut' }}
+                    >
+                        {isRouting ? 'Calculating route...' : 'Loading map...'}
+                    </MotionOverlay>
+                )}
+            </AnimatePresence>
+            <Map
+                onLoad={() => setMapLoaded(true)}
+                mapLib={import('maplibre-gl')}
+                initialViewState={{
+                    longitude: 51.389,
+                    latitude: 35.6892,
+                    zoom: 12,
+                }}
+                mapStyle="https://api.maptiler.com/maps/topo-v2/style.json?key=m5eTHjiubOoWI9uX6XPB"
+                onClick={handleMapClick}
+            >
+                {routePoints.map(([lng, lat], index) => (
+                    <Marker key={index} longitude={lng} latitude={lat}>
+                        <div style={{ fontSize: '20px' }}>
+                            {index === 0 ? '🟢' : '🔴'}
+                        </div>
+                    </Marker>
+                ))}
+
+                {route && (
+                    <Source id="route" type="geojson" data={{ type: 'Feature', geometry: route }}>
+                        <Layer
+                            id="route-line"
+                            type="line"
+                            paint={{
+                                'line-color': '#0074D9',
+                                'line-width': 4,
+                            }}
+                        />
+                    </Source>
+                )}
+            </Map>
+        </MapWrapper>
+    );
 }
